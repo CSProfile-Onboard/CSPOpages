@@ -1,0 +1,30 @@
+[
+  {
+    "name": "Fantasy",
+    "src": "toolchain-trail-fantasy.png",
+    "description": "Moonlit meadow with fireflies and pine hills",
+    "previewText": "Default theme",
+    "compatibleSprites": ["Minimalist", "Miku"]
+  },
+  {
+    "name": "City",
+    "src": "toolchain-trail-city.png",
+    "description": "Neon skyline under a violet night",
+    "previewText": "Urban theme",
+    "compatibleSprites": ["Chill Guy", "Fidelity Girl"]
+  },
+  {
+    "name": "Space",
+    "src": "toolchain-trail-space.png",
+    "description": "Starfield between two planets",
+    "previewText": "Space theme",
+    "compatibleSprites": ["Astronaut", "Ufos", "Pew"]
+  },
+  {
+    "name": "Clouds",
+    "src": "toolchain-trail-clouds.png",
+    "description": "Dusk sky above a sea of clouds",
+    "previewText": "Cloud theme",
+    "compatibleSprites": ["Kirby", "Slime"]
+  }
+]

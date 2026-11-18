@@ -47,7 +47,7 @@ import CsPathwayPlayer from './CsPathwayPlayer.js';
 import StatusPanel from '@assets/js/GameEnginev1.1/essentials/StatusPanel.js';
 import FriendlyNpc from '@assets/js/GameEnginev1.1/essentials/FriendlyNpc.js';
 import DialogueSystem from '@assets/js/GameEnginev1.1/essentials/DialogueSystem.js';
-import ProfileManager from '@assets/js/projects/cs-pathway/model/ProfileManager.js';
+import GameLevelCsPathIdentity from './GameLevelCsPathIdentity.js';
 import LocalProfile from '@assets/js/projects/cs-pathway/model/localProfile.js';
 import StationVerificationTrial from './StationVerificationTrial.js';
 import { javaURI, fetchOptions } from '@assets/js/api/config.js';
@@ -214,14 +214,16 @@ const STATION_HUE_ROTATE = Object.freeze({
  *
  * @class
  */
-class GameLevelCsPath4Toolchain {
+class GameLevelCsPath4Toolchain extends GameLevelCsPathIdentity {
   static levelId = 'toolchain-trail';
   static displayName = 'Toolchain Trail';
 
   constructor(gameEnv) {
-    this.gameEnv = gameEnv;
-    this.levelDisplayName = GameLevelCsPath4Toolchain.displayName;
-    this.logPrefix = GameLevelCsPath4Toolchain.displayName;
+    // The base class carries the Identity Forge avatar and world theme into this level.
+    super(gameEnv, {
+      levelDisplayName: GameLevelCsPath4Toolchain.displayName,
+      logPrefix: GameLevelCsPath4Toolchain.displayName,
+    });
 
     const width = gameEnv.innerWidth;
     const height = gameEnv.innerHeight;
@@ -605,12 +607,15 @@ class GameLevelCsPath4Toolchain {
     this._showLoading('Charting the Toolchain Trail...');
 
     /**
-     * Section: profile persistence (same ProfileManager pattern as Level 1).
+     * Section: profile persistence. Reuses the base class's shared profile load.
+     * If an earlier level already loaded it with another ProfileManager, this
+     * one still needs initialize() for isAuthenticated and the toolchain saves.
      */
-    this.profileManager = new ProfileManager();
     this.profileData = {};
     this.completedStations = new Set();
-    this.profileManagerReady = this.profileManager.initialize().then(async (restored) => {
+    this.profileManagerReady = this.profileReady.then(async (shared) => (
+      this.profileManager.initialized ? shared : this.profileManager.initialize()
+    )).then(async (restored) => {
       if (restored?.profileData) {
         this.profileData = { ...restored.profileData };
         const savedStations = restored.profileData.toolchainMeta?.stations || {};
@@ -626,20 +631,22 @@ class GameLevelCsPath4Toolchain {
     });
 
     /**
-     * Section: background (space station backdrop).
+     * Section: background. Space is the default; restoreIdentitySelections
+     * swaps in the backdrop matching the world theme picked in Identity Forge.
      */
     const bg_data = {
       name: GameLevelCsPath4Toolchain.displayName,
       greeting: 'Docking sequence complete. Welcome to the Toolchain Trail.',
-      src: path + '/images/projects/cs-pathway/bg/toolchain-trail-space.png',
+      src: path + '/images/projects/cs-pathway/bg-toolchain/toolchain-trail-space.png',
     };
 
     /**
-     * Section: player (avatar carries over unchanged from Level 1).
+     * Section: player. Minimalist is only the fallback: restoreIdentitySelections
+     * swaps in the Identity Forge avatar, finding the player by this shared id.
      */
     const PLAYER_SCALE_FACTOR = 5;
     const player_data = {
-      id: 'Minimalist_Toolchain',
+      id: 'Minimalist_Identity',
       greeting: 'Systems nominal. Ready to explore the Toolchain Trail!',
       src: path + '/images/projects/cs-pathway/player/minimalist.png',
       SCALE_FACTOR: PLAYER_SCALE_FACTOR,
@@ -659,6 +666,12 @@ class GameLevelCsPath4Toolchain {
       hitbox: { widthPercentage: 0.4, heightPercentage: 0.4 },
       keypress: { up: 87, left: 65, down: 83, right: 68 },
     };
+
+    this.restoreIdentitySelections({
+      bgData: bg_data,
+      themeManifestUrl: `${path}/images/projects/cs-pathway/bg-toolchain/index.json`,
+      themeAssetPrefix: `${path}/images/projects/cs-pathway/bg-toolchain/`,
+    });
 
     /**
      * Section: station gatekeeper NPC factory (mirrors Forge's createGatekeeperData).
@@ -2110,7 +2123,6 @@ class GameLevelCsPath4Toolchain {
 
   destroy() {
     console.log(`[${this.logPrefix}] tearing down level...`);
-    this.scoreboard?.destroy();
     this._barrierCanvas?.remove();
     this.macSetupCheck?.destroy();
     this.systemSetupCheck?.destroy();
@@ -2136,7 +2148,7 @@ class GameLevelCsPath4Toolchain {
         this.levelDialogueSystem.closeDialogue?.();
       }
     }
-    if (this.profilePanelView) this.profilePanelView.destroy();
+    super.destroy(); // profile panel, scoreboard, and the base class's Present HUD
   }
 }
 
