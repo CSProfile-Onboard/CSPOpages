@@ -37,8 +37,8 @@ export default class StationVerificationTrial {
    * @param {string} opts.station.skill - real-world skill label (e.g. "Shell fundamentals and package management")
    * @param {string} opts.station.narrativeHook - 1-2 sentence flavor text shown before the terminal
    * @param {Array<string|{text: string, commands: string[]}|{bold: string, text: string}>} opts.station.instructions - ordered real-world
-   *   steps; a step with commands shows each one with its own Copy button, and a step with bold
-   *   shows that text in extra-bold white (e.g. how to open the terminal)
+   *   steps; the briefing presents one step at a time, keeping that step's commands together
+   *   with individual Copy buttons. A step with bold shows that text in extra-bold white.
    * @param {RegExp} opts.station.expectedCommandPattern - pattern the mock terminal checks input against
    * @param {string} opts.station.exampleCommand - a valid example command (shown as a hint)
    * @param {string} opts.station.funFact - fun fact shown by the NPC popup on success (level owns the popup, not this trial)
@@ -51,6 +51,8 @@ export default class StationVerificationTrial {
     this.onComplete = onComplete || (() => {});
     this.onClose = onClose || (() => {});
     this.overlay = null;
+    this.briefingSteps = [];
+    this.briefingStepIndex = 0;
     this.verified = false;
     this.session = null;
     this.pollTimer = null;
@@ -66,7 +68,7 @@ export default class StationVerificationTrial {
     this.overlay = document.createElement('div');
     this.overlay.className = 'svt-overlay';
 
-    const instructions = Array.isArray(this.station.instructions) ? this.station.instructions : [];
+    this.briefingSteps = Array.isArray(this.station.instructions) ? this.station.instructions : [];
 
     this.overlay.innerHTML = `
       <style>
@@ -167,13 +169,77 @@ export default class StationVerificationTrial {
           letter-spacing: 1px;
         }
 
-        .svt-steps {
-          margin: 0;
-          padding-left: 18px;
+        .svt-briefing-progress {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          margin: 0 0 12px;
+          color: #bae6fd;
+          font-size: 11px;
+          font-weight: bold;
+          letter-spacing: 0.06em;
+        }
+        .svt-briefing-progress-track {
+          flex: 1;
+          height: 7px;
+          overflow: hidden;
+          background: rgba(125, 211, 252, 0.15);
+          border: 1px solid rgba(125, 211, 252, 0.35);
+          border-radius: 999px;
+        }
+        .svt-briefing-progress-fill {
+          width: 0;
+          height: 100%;
+          background: linear-gradient(90deg, #38bdf8, #a78bfa);
+          border-radius: inherit;
+          transition: width 180ms ease;
+        }
+        .svt-briefing-card {
+          display: grid;
+          grid-template-columns: 76px minmax(0, 1fr);
+          gap: 12px;
+          min-height: 150px;
+          align-items: start;
+          padding: 14px;
+          background: linear-gradient(145deg, rgba(14, 30, 60, 0.95), rgba(15, 23, 42, 0.82));
+          border: 1px solid rgba(125, 211, 252, 0.3);
+          border-radius: 12px;
+        }
+        .svt-step-visual {
+          display: grid;
+          justify-items: center;
+          gap: 5px;
+          padding: 8px 4px;
+          color: #bae6fd;
+          text-align: center;
+        }
+        .svt-step-visual-icon {
+          display: grid;
+          width: 56px;
+          height: 56px;
+          place-items: center;
+          background: radial-gradient(circle, rgba(56, 189, 248, 0.24), rgba(56, 189, 248, 0.04));
+          border: 1px solid rgba(125, 211, 252, 0.48);
+          border-radius: 18px;
+          font-size: 30px;
+        }
+        .svt-step-visual-label {
+          font-size: 9px;
+          line-height: 1.25;
+        }
+        .svt-step-instructions {
+          min-width: 0;
           font-size: 12.5px;
-          line-height: 1.7;
+          line-height: 1.65;
           color: #dbeafe;
         }
+        .svt-step-navigation {
+          display: flex;
+          justify-content: space-between;
+          gap: 8px;
+          margin-top: 12px;
+        }
+        .svt-step-navigation .svt-btn { padding: 8px 11px; }
 
         /* A bold step (like how to open the terminal): extra-bold and bright white. */
         .svt-bold-step {
@@ -430,6 +496,16 @@ export default class StationVerificationTrial {
             flex-direction: column-reverse;
           }
           .svt-btn { width: 100%; }
+          .svt-briefing-card {
+            grid-template-columns: 58px minmax(0, 1fr);
+            gap: 8px;
+            padding: 10px;
+          }
+          .svt-step-visual-icon {
+            width: 46px;
+            height: 46px;
+            font-size: 25px;
+          }
         }
       </style>
 
@@ -446,9 +522,17 @@ export default class StationVerificationTrial {
         <div class="svt-body">
           <div class="svt-panel">
             <h4>MISSION BRIEFING</h4>
-            <ol class="svt-steps">
-              ${instructions.map((step) => `<li>${this._renderStep(step)}</li>`).join('')}
-            </ol>
+            <div class="svt-briefing-progress">
+              <span id="svt-briefing-count" aria-live="polite"></span>
+              <div id="svt-briefing-progress" class="svt-briefing-progress-track" role="progressbar" aria-label="Mission briefing progress" aria-valuemin="0" aria-valuemax="${this.briefingSteps.length}" aria-valuenow="0">
+                <div class="svt-briefing-progress-fill" id="svt-briefing-progress-fill"></div>
+              </div>
+            </div>
+            <div id="svt-briefing-content" aria-live="polite"></div>
+            <div class="svt-step-navigation">
+              <button class="svt-btn" id="svt-briefing-previous">← Previous</button>
+              <button class="svt-btn primary" id="svt-briefing-next">Next step →</button>
+            </div>
             <div class="svt-verify"><strong>FINAL STEP, VERIFY:</strong> the Toolchain agent on your computer runs the real commands and reports them to the server. Start it once; it keeps running in the background for the whole trail.</div>
           </div>
 
@@ -456,8 +540,7 @@ export default class StationVerificationTrial {
             <h4>VERIFY WITH THE TOOLCHAIN AGENT</h4>
             <div id="svt-agent-start" class="svt-hidden">
               <div id="svt-briefing-gate">
-                <div class="svt-prompt">Finish every Mission Briefing step first. The agent runs from inside the pages folder you cloned, so start it only once your terminal is there.</div>
-                <button class="svt-btn primary" id="svt-briefing-done">I finished the Mission Briefing</button>
+                <div class="svt-prompt">Work through the Mission Briefing one step at a time. When you finish, the pairing-code option will appear here.</div>
               </div>
               <div id="svt-get-code-step" class="svt-hidden">
                 <div class="svt-prompt">Get a one-time pairing code and paste it into the agent. You only do this once for the whole trail.</div>
@@ -515,10 +598,19 @@ export default class StationVerificationTrial {
     this.checksEl = this.overlay.querySelector('#svt-checks');
     this.inputEl = this.overlay.querySelector('#svt-input');
     this.runBtn = this.overlay.querySelector('#svt-run');
+    this.briefingContentEl = this.overlay.querySelector('#svt-briefing-content');
+    this.briefingCountEl = this.overlay.querySelector('#svt-briefing-count');
+    this.briefingProgressEl = this.overlay.querySelector('#svt-briefing-progress');
+    this.briefingProgressFillEl = this.overlay.querySelector('#svt-briefing-progress-fill');
+    this.briefingPreviousBtn = this.overlay.querySelector('#svt-briefing-previous');
+    this.briefingNextBtn = this.overlay.querySelector('#svt-briefing-next');
 
     this.overlay.querySelector('#svt-close').onclick = () => this._close();
     this.overlay.querySelector('#svt-cancel').onclick = () => this._close();
     this.runBtn.onclick = () => this._attemptVerify();
+    this.briefingPreviousBtn.onclick = () => this._moveBriefingStep(-1);
+    this.briefingNextBtn.onclick = () => this._moveBriefingStep(1);
+    this._renderBriefingStep();
 
     this.inputEl.addEventListener('input', () => {
       this.runBtn.disabled = this.inputEl.value.trim().length === 0;
@@ -528,7 +620,6 @@ export default class StationVerificationTrial {
     this.agentChecksEl = this.overlay.querySelector('#svt-agent-checks');
     this.getCodeBtn = this.overlay.querySelector('#svt-get-code');
     this.getCodeBtn.onclick = () => this._startAgentSession();
-    this.overlay.querySelector('#svt-briefing-done').onclick = () => this._showGetCodeStep(true);
     this.overlay.querySelector('#svt-copy-code').onclick = () => this._copyCode();
     // Every command's Copy button copies the command shown right next to it.
     this.overlay.addEventListener('click', (event) => {
@@ -549,6 +640,70 @@ export default class StationVerificationTrial {
     } else {
       this._showPairingStart();
     }
+  }
+
+  _renderBriefingStep() {
+    const total = this.briefingSteps.length;
+    const step = this.briefingSteps[this.briefingStepIndex];
+    if (!step) {
+      this.briefingCountEl.textContent = total ? '' : 'No steps available';
+      this.briefingContentEl.innerHTML = '<div class="svt-prompt">No setup steps are available for this station.</div>';
+      this.briefingProgressEl.setAttribute('aria-valuenow', '0');
+      this.briefingProgressFillEl.style.width = '0%';
+      this.briefingPreviousBtn.disabled = true;
+      this.briefingNextBtn.disabled = true;
+      return;
+    }
+
+    const { icon, label } = this._briefingVisual(step);
+    const current = this.briefingStepIndex + 1;
+    const isLastStep = current === total;
+    this.briefingCountEl.textContent = `STEP ${current} OF ${total}`;
+    this.briefingProgressEl.setAttribute('aria-valuenow', String(current));
+    this.briefingProgressEl.setAttribute('aria-valuetext', `Step ${current} of ${total}`);
+    this.briefingProgressFillEl.style.width = `${(current / total) * 100}%`;
+    this.briefingContentEl.innerHTML = `
+      <div class="svt-briefing-card">
+        <div class="svt-step-visual" aria-hidden="true">
+          <span class="svt-step-visual-icon">${icon}</span>
+          <span class="svt-step-visual-label">${this._escape(label)}</span>
+        </div>
+        <div class="svt-step-instructions">${this._renderStep(step)}</div>
+      </div>
+    `;
+    this.briefingPreviousBtn.disabled = this.briefingStepIndex === 0;
+    this.briefingNextBtn.disabled = false;
+    this.briefingNextBtn.textContent = isLastStep ? 'Finish briefing ✓' : 'Next step →';
+  }
+
+  _briefingVisual(step) {
+    const description = typeof step === 'string' ? step : step?.text || '';
+    const commands = Array.isArray(step?.commands) ? step.commands.join(' ') : '';
+    const content = `${description} ${commands}`.toLowerCase();
+    const visuals = [
+      { match: /terminal|shell|command prompt|wsl/, icon: '🖥️', label: 'Terminal' },
+      { match: /python|pip/, icon: '🐍', label: 'Python tools' },
+      { match: /ruby|bundler|bundle|gem/, icon: '💎', label: 'Ruby tools' },
+      { match: /java|javac|jdk/, icon: '☕', label: 'Java tools' },
+      { match: /git|github|clone|repository|repo/, icon: '📦', label: 'Project tools' },
+      { match: /folder|directory|\bcd\b|\bmkdir\b|\bpages\b/, icon: '📁', label: 'Project folder' },
+      { match: /install|setup|missing|activate|brew|apt/, icon: '🛠️', label: 'Install tools' },
+      { match: /editor|visual studio code|\bcode\b/, icon: '💻', label: 'Code editor' },
+      { match: /run|check|confirm|version|verify/, icon: '✅', label: 'Check your setup' },
+    ];
+    return visuals.find(({ match }) => match.test(content)) || { icon: '🧭', label: 'Setup step' };
+  }
+
+  _moveBriefingStep(direction) {
+    const nextIndex = this.briefingStepIndex + direction;
+    if (nextIndex < 0 || nextIndex >= this.briefingSteps.length) {
+      if (direction > 0 && this.briefingStepIndex === this.briefingSteps.length - 1) {
+        this._showGetCodeStep(true);
+      }
+      return;
+    }
+    this.briefingStepIndex = nextIndex;
+    this._renderBriefingStep();
   }
 
   _show(selector, visible) {
